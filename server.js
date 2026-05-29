@@ -1,5 +1,6 @@
 const WebSocket = require('ws');
 const { v4: uuidv4 } = require('uuid');
+const http = require('http');
 
 const PORT = process.env.PORT || 3000;
 
@@ -94,9 +95,25 @@ function removePlayerFromRoom(playerId) {
 // WebSocket server
 // ─────────────────────────────────────────────────────────────────────────────
 
-const wss = new WebSocket.Server({ port: PORT });
+const server = http.createServer((req, res) => {
+  if (req.url === '/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      status: 'ok',
+      rooms: rooms.size,
+      players: Array.from(rooms.values()).reduce((n, r) => n + r.players.size, 0),
+    }));
+  } else {
+    res.writeHead(200);
+    res.end('PartyHub server is running');
+  }
+});
 
-console.log(`PartyHub server running on port ${PORT}`);
+const wss = new WebSocket.Server({ server });
+
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`PartyHub server running on port ${PORT}`);
+});
 
 wss.on('connection', (ws) => {
   // Each connection gets a unique ID
@@ -273,26 +290,4 @@ function findRoomByPlayerId(playerId) {
   return null;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Health check endpoint (Railway needs this to confirm the server is up)
-// ─────────────────────────────────────────────────────────────────────────────
 
-const http = require('http');
-const healthServer = http.createServer((req, res) => {
-  if (req.url === '/health') {
-    res.writeHead(200);
-    res.end(JSON.stringify({
-      status: 'ok',
-      rooms: rooms.size,
-      players: Array.from(rooms.values()).reduce((n, r) => n + r.players.size, 0),
-    }));
-  } else {
-    res.writeHead(200);
-    res.end('PartyHub server is running');
-  }
-});
-
-const HEALTH_PORT = process.env.HEALTH_PORT || 3001;
-healthServer.listen(HEALTH_PORT, () => {
-  console.log(`Health check on port ${HEALTH_PORT}`);
-});
