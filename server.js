@@ -200,6 +200,31 @@ function handleMessage(ws, msg) {
       break;
     }
 
+    case 'leaveRoom': {
+      const room = findRoomByPlayerId(ws.playerId);
+      if (!room) break;
+      const p = room.players.get(ws.playerId);
+      if (!p) break;
+      if (p.graceTimer) { clearTimeout(p.graceTimer); p.graceTimer = null; }
+      room.players.delete(ws.playerId);
+      console.log(`[Room ${room.code}] ${p.nickname} left explicitly`);
+      broadcastToRoom(room, {
+        type: 'playerLeft', playerId: ws.playerId,
+        nickname: p.nickname, players: playerList(room),
+      });
+      if (p.isHost && room.players.size > 0) {
+        const newHost = Array.from(room.players.values()).find(x => x.connected) ||
+                        room.players.values().next().value;
+        newHost.isHost = true; room.hostId = newHost.id;
+        broadcastToRoom(room, {
+          type: 'hostChanged', newHostId: newHost.id,
+          newHostNickname: newHost.nickname, players: playerList(room),
+        });
+      }
+      if (room.players.size === 0) { rooms.delete(room.code); }
+      break;
+    }
+
     case 'ping':
       send(ws, { type: 'pong' });
       break;
