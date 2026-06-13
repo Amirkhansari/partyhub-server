@@ -54,15 +54,23 @@ wss.on('connection', (ws) => {
 
   ws.on('message', (data, isBinary) => {
     if (isBinary) {
-      // Binary = voice audio frame. Prepend sender ID (36-byte UUID) and relay.
       const room = findRoomByPlayerId(ws.playerId);
-      if (!room) return;
+      if (!room) {
+        console.log(`[Voice] binary from ${ws.playerId} — NO ROOM FOUND`);
+        return;
+      }
       const header = Buffer.from(ws.playerId, 'utf8');
       const tagged = Buffer.concat([header, Buffer.from(data)]);
+      let sent = 0;
       for (const [id, p] of room.players) {
         if (id !== ws.playerId && p.connected && p.ws.readyState === WebSocket.OPEN) {
           p.ws.send(tagged, { binary: true });
+          sent++;
         }
+      }
+      if (!ws._voiceLogged) {
+        console.log(`[Voice] first audio from ${ws.playerId} in room ${room.code}, relayed to ${sent} peer(s)`);
+        ws._voiceLogged = true;
       }
       return;
     }
