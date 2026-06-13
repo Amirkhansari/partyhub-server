@@ -117,7 +117,7 @@ function handleMessage(ws, msg) {
         id: ws.playerId, nickname: msg.nickname, ws, isHost: true,
         connected: true, graceTimer: null,
       };
-      rooms.set(code, { code, hostId: ws.playerId, players: new Map([[ws.playerId, player]]) });
+      rooms.set(code, { code, hostId: ws.playerId, locked: false, kickedNicknames: new Set(), players: new Map([[ws.playerId, player]]) });
       console.log(`[Room ${code}] created by ${msg.nickname}`);
       send(ws, { type: 'roomCreated', roomCode: code, playerId: ws.playerId, players: playerList(rooms.get(code)) });
       break;
@@ -151,6 +151,14 @@ function handleMessage(ws, msg) {
       }
 
       if (!reattached) {
+        if (room.locked) {
+          send(ws, { type: 'error', code: 'ROOM_LOCKED', message: 'This room is locked.' });
+          return;
+        }
+        if (room.kickedNicknames && room.kickedNicknames.has(msg.nickname)) {
+          send(ws, { type: 'error', code: 'KICKED', message: 'You have been kicked from this room.' });
+          return;
+        }
         const player = {
           id: ws.playerId, nickname: msg.nickname, ws, isHost: false,
           connected: true, graceTimer: null,
@@ -222,6 +230,51 @@ function handleMessage(ws, msg) {
         });
       }
       if (room.players.size === 0) { rooms.delete(room.code); }
+      break;
+    }
+
+    case 'kickPlayer': {
+      const room = findRoomByPlayerId(ws.playerId);
+      if (!room) break;
+      const me = room.players.get(ws.playerId);
+      if (!me || !me.isHost) {
+        send(ws, { type: 'error', code: 'NOT_HOST', message: 'Only the host can kick.' });
+        break;
+      }
+      const target = room.players.get(msg.targetId);
+      if (!target) break;
+      if (target.graceTimer) { clearTimeout(target.graceTimer); target.graceTimer = null; }
+      room.players.delete(msg.targetId);
+      if (!room.kickedNicknames) room.kickedNicknames = new Set();
+      room.kickedNicknames.add(target.nickname);
+      console.log(`[Room ${room.code}] ${target.nickname} kicked by host`);
+      send(target.ws, { type: 'kicked', message: 'You have been kicked from the room.' });
+      broadcastToRoom(room, {
+        type: 'playerKicked', playerId: msg.targetId,
+        nickname: target.nickname, players: playerList(room),
+      });
+      break;
+    }
+
+    case 'lockRoom': {
+      const room = findRoomByPlayerId(ws.playerId);
+      if (!room) break;
+      const me = room.players.get(ws.playerId);
+      if (!me || !me.isHost) break;
+      room.locked = true;
+      console.log(`[Room ${room.code}] locked by host`);
+      broadcastToRoom(room, { type: 'roomLocked', locked: true });
+      break;
+    }
+
+    case 'unlockRoom': {
+      const room = findRoomByPlayerId(ws.playerId);
+      if (!room) break;
+      const me = room.players.get(ws.playerId);
+      if (!me || !me.isHost) break;
+      room.locked = false;
+      console.log(`[Room ${room.code}] unlocked by host`);
+      broadcastToRoom(room, { type: 'roomLocked', locked: false });
       break;
     }
 
