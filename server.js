@@ -52,7 +52,18 @@ wss.on('connection', (ws) => {
   console.log(`[Connect] ${ws.playerId}`);
   send(ws, { type: 'connected', playerId: ws.playerId });
 
-  ws.on('message', (data) => {
+  ws.on('message', (data, isBinary) => {
+    if (isBinary) {
+      // Binary = voice audio frame. Relay to all other connected players in room.
+      const room = findRoomByPlayerId(ws.playerId);
+      if (!room) return;
+      for (const [id, p] of room.players) {
+        if (id !== ws.playerId && p.connected && p.ws.readyState === WebSocket.OPEN) {
+          p.ws.send(data, { binary: true });
+        }
+      }
+      return;
+    }
     let msg;
     try { msg = JSON.parse(data.toString()); } catch (e) { return; }
     handleMessage(ws, msg);
@@ -275,6 +286,54 @@ function handleMessage(ws, msg) {
       room.locked = false;
       console.log(`[Room ${room.code}] unlocked by host`);
       broadcastToRoom(room, { type: 'roomLocked', locked: false });
+      break;
+    }
+
+    case 'chatMessage': {
+      const room = findRoomByPlayerId(ws.playerId);
+      if (!room) break;
+      const sender = room.players.get(ws.playerId);
+      if (!sender) break;
+      const chatMsg = {
+        type: 'chatMessage',
+        senderId: ws.playerId,
+        senderName: sender.nickname,
+        text: msg.text,
+        timestamp: Date.now(),
+      };
+      // Send to ALL players including sender (confirmation)
+      for (const [, p] of room.players) {
+        if (p.connected) send(p.ws, chatMsg);
+      }
+      break;
+    }
+
+    case 'voiceState': {
+      const room = findRoomByPlayerId(ws.playerId);
+      if (!room) break;
+      broadcastToRoom(room, {
+        type: 'voiceState',
+        playerId: ws.playerId,
+        isMuted: msg.isMuted,
+        inVoice: msg.inVoice,
+      });
+      break;
+    }
+
+    case 'hostMutePlayer': {
+      const room = findRoomByPlayerId(ws.playerId);
+      if (!room) break;
+      const me = room.players.get(ws.playerId);
+      if (!me || !me.isHost) break;
+      const target = room.players.get(msg.targetId);
+      if (!target) break;
+      send(target.ws, { type: 'hostMuted' });
+      broadcastToRoom(room, {
+        type: 'voiceState',
+        playerId: msg.targetId,
+        isMuted: true,
+        inVoice: true,
+      });
       break;
     }
 
