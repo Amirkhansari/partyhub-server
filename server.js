@@ -1,13 +1,154 @@
 const WebSocket = require('ws');
 const http = require('http');
 const { v4: uuidv4 } = require('uuid');
+const Anthropic = require('@anthropic-ai/sdk');
 
 const PORT = process.env.PORT || 3000;
 const GRACE_MS = 45000; // keep a dropped player's seat this long for reconnect
 
 const rooms = new Map();
 
-const server = http.createServer((req, res) => {
+// ── AI rate limiting (sliding window) ────────────────────────────
+const AI_RATE_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+const AI_RATE_MAX = 100;
+const aiRequestTimestamps = [];
+
+function aiRateLimitOk() {
+  const now = Date.now();
+  while (aiRequestTimestamps.length && aiRequestTimestamps[0] < now - AI_RATE_WINDOW_MS)
+    aiRequestTimestamps.shift();
+  if (aiRequestTimestamps.length >= AI_RATE_MAX) return false;
+  aiRequestTimestamps.push(now);
+  return true;
+}
+
+// ── Claude client ────────────────────────────────────────────────
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+// ── System prompts per game type ─────────────────────────────────
+function buildSystemPrompt(gameType, theme, language, count, mode) {
+  const lang = language === 'fa' ? 'Persian (Farsi)' : 'English';
+  const langNote = language === 'fa'
+    ? ' Use natural everyday Persian that Iranian audiences understand. No transliterated English words.'
+    : '';
+
+  const prompts = {
+    hot_seat: `Generate ${count} fun party "hot seat" questions about "${theme}" in ${lang}.${langNote} Return ONLY a JSON array of strings. Example: ["question 1","question 2"]`,
+
+    most_likely_to: `Generate ${count} "Most likely to..." prompts about "${theme}" in ${lang}.${langNote} Each prompt should start with the equivalent of "Most likely to" in the target language. Return ONLY a JSON array of strings.`,
+
+    never_have_i_ever: `Generate ${count} "Never have I ever..." statements about "${theme}" in ${lang}.${langNote} Each should start with the equivalent of "Never have I ever" in the target language. Return ONLY a JSON array of strings.`,
+
+    dare_wheel: `Generate ${count} ${mode || 'mild'} dares about "${theme}" in ${lang}.${langNote} Mild = funny and harmless. Spicy = bold/embarrassing but not dangerous. Group = involves everyone playing. Return ONLY a JSON array of strings.`,
+
+    would_you_rather: `Generate ${count} "Would You Rather" dilemmas about "${theme}" in ${lang}.${langNote} Return ONLY a JSON array of objects: [{"optionA":"...","optionB":"..."}]`,
+
+    pass_the_bomb: `Generate ${count} "Name a..." category prompts about "${theme}" in ${lang}.${langNote} Each should be a category players can rapidly name items from (e.g. "Name a type of..."). Return ONLY a JSON array of strings.`,
+
+    category_rush: `Generate ${count} categories related to "${theme}" in ${lang} with a matching emoji.${langNote} Return ONLY a JSON array of objects: [{"category":"...","emoji":"🍕"}]`,
+
+    trivia_showdown: `Generate ${count} trivia questions about "${theme}" in ${lang}.${langNote} Each question must have exactly 4 options with one correct answer. Return ONLY a JSON array: [{"question":"...","options":["A","B","C","D"],"correctIndex":0,"category":"${theme}"}]`,
+
+    psych: `Generate ${count} trivia questions about "${theme}" in ${lang} where the real answer is surprising or little-known.${langNote} Return ONLY a JSON array: [{"question":"...","answer":"..."}]`,
+
+    charades_timer: `Generate ${count} fun things to act out (charades prompts) related to "${theme}" in ${lang}.${langNote} Mix of actions, characters, movies, and objects. Return ONLY a JSON array of strings.`,
+
+    forehead_guess: `Generate ${count} words/names to guess in a forehead guessing game, related to "${theme}" in ${lang}.${langNote} Mix of famous people, objects, animals, and concepts. Return ONLY a JSON array of strings.`,
+
+    draw_and_guess: `Generate ${count} things to draw related to "${theme}" in ${lang}.${langNote} Each should be something drawable (concrete nouns, characters, scenes). Return ONLY a JSON array of strings.`,
+
+    secret_spy: `Generate ${count} locations related to "${theme}" in ${lang}, each with 6-8 roles that exist at that location.${langNote} Return ONLY a JSON array: [{"name":"...","icon":"building","roles":["role1","role2","role3","role4","role5","role6"],"category":"${theme}"}]`,
+
+    undercover_word: `Generate ${count} word pairs related to "${theme}" in ${lang}.${langNote} Each pair should be two similar but distinct things (hard to tell apart when describing). Return ONLY a JSON array: [{"civilian":"...","undercover":"..."}]`,
+  };
+
+  return prompts[gameType] || null;
+}
+
+function maxTokensForGame(gameType) {
+  const heavy = ['secret_spy', 'trivia_showdown'];
+  if (heavy.includes(gameType)) return 4000;
+  return 2000;
+}
+
+async function handleAIGenerate(req, res) {
+  // CORS
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
+  if (req.method !== 'POST') {
+    res.writeHead(405, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: false, error: 'Method not allowed' }));
+    return;
+  }
+
+  let body = '';
+  for await (const chunk of req) body += chunk;
+
+  let parsed;
+  try { parsed = JSON.parse(body); } catch {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: false, error: 'Invalid JSON' }));
+    return;
+  }
+
+  const { gameType, theme, language, count, mode } = parsed;
+  if (!gameType || !theme || !language || !count) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: false, error: 'Missing required fields: gameType, theme, language, count' }));
+    return;
+  }
+
+  if (!aiRateLimitOk()) {
+    res.writeHead(429, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: false, error: 'Rate limit exceeded. Try again later.' }));
+    return;
+  }
+
+  const systemPrompt = buildSystemPrompt(gameType, theme, language, count, mode);
+  if (!systemPrompt) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: false, error: `Unknown game type: ${gameType}` }));
+    return;
+  }
+
+  try {
+    console.log(`[AI] Generating ${count} items for ${gameType} theme="${theme}" lang=${language}`);
+    const response = await anthropic.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: maxTokensForGame(gameType),
+      messages: [{ role: 'user', content: systemPrompt }],
+    });
+
+    const text = response.content[0].text.trim();
+    // Extract JSON array from response (handle markdown code blocks)
+    const jsonMatch = text.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) {
+      console.error('[AI] No JSON array found in response:', text.substring(0, 200));
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: false, error: 'AI returned invalid format' }));
+      return;
+    }
+
+    const content = JSON.parse(jsonMatch[0]);
+    console.log(`[AI] Success: ${content.length} items generated`);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: true, content }));
+  } catch (err) {
+    console.error('[AI] Error:', err.message);
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: false, error: 'AI generation failed' }));
+  }
+}
+
+// ── HTTP server with routing ─────────────────────────────────────
+const server = http.createServer(async (req, res) => {
+  if (req.url === '/api/ai/generate') {
+    await handleAIGenerate(req, res);
+    return;
+  }
+  // Default health/status endpoint
   res.writeHead(200, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({
     status: 'ok',
