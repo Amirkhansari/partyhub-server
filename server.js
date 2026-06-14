@@ -136,9 +136,9 @@ async function handleAIGenerate(req, res) {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ success: true, content }));
   } catch (err) {
-    console.error('[AI] Error:', err.message);
+    console.error('[AI] Error:', err.message, err.status || '', err.error?.type || '');
     res.writeHead(500, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ success: false, error: 'AI generation failed' }));
+    res.end(JSON.stringify({ success: false, error: 'AI generation failed', detail: err.message }));
   }
 }
 
