@@ -179,7 +179,7 @@ function broadcastToRoom(room, msg, excludeId = null) {
 
 function playerList(room) {
   return Array.from(room.players.values()).map(p => ({
-    id: p.id, nickname: p.nickname, isHost: p.isHost,
+    id: p.id, nickname: p.nickname, isHost: p.isHost, avatar: p.avatar || '',
   }));
 }
 
@@ -276,7 +276,7 @@ function handleMessage(ws, msg) {
     case 'createRoom': {
       const code = generateRoomCode();
       const player = {
-        id: ws.playerId, nickname: msg.nickname, ws, isHost: true,
+        id: ws.playerId, nickname: msg.nickname, avatar: msg.avatar || '', ws, isHost: true,
         connected: true, graceTimer: null,
       };
       rooms.set(code, { code, hostId: ws.playerId, locked: false, kickedNicknames: new Set(), players: new Map([[ws.playerId, player]]) });
@@ -304,6 +304,7 @@ function handleMessage(ws, msg) {
           p.id = ws.playerId;
           p.ws = ws;
           p.connected = true;
+          if (msg.avatar) p.avatar = msg.avatar;
           room.players.set(ws.playerId, p);
           if (p.isHost) room.hostId = ws.playerId;
           reattached = true;
@@ -322,7 +323,7 @@ function handleMessage(ws, msg) {
           return;
         }
         const player = {
-          id: ws.playerId, nickname: msg.nickname, ws, isHost: false,
+          id: ws.playerId, nickname: msg.nickname, avatar: msg.avatar || '', ws, isHost: false,
           connected: true, graceTimer: null,
         };
         room.players.set(ws.playerId, player);
