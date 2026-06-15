@@ -33,33 +33,33 @@ function buildSystemPrompt(gameType, theme, language, count, mode) {
     : '';
 
   const prompts = {
-    hot_seat: `Generate ${count} fun party "hot seat" questions about "${theme}" in ${lang}.${langNote} Return ONLY a JSON array of strings. Example: ["question 1","question 2"]`,
+    hot_seat: `Generate ${count} spicy, personal "hot seat" questions about "${theme}" in ${lang}.${langNote} Questions should put one player on the spot — funny, revealing, or mildly embarrassing but never cruel. Examples: "What's the most embarrassing thing you've done in public?" or "Who in this room would survive a zombie apocalypse last?" Keep each question under 20 words. Return ONLY a JSON array of strings. Example: ["question 1","question 2"]`,
 
-    most_likely_to: `Generate ${count} "Most likely to..." prompts about "${theme}" in ${lang}.${langNote} Each prompt should start with the equivalent of "Most likely to" in the target language. Return ONLY a JSON array of strings.`,
+    most_likely_to: `Generate ${count} "Most likely to..." prompts about "${theme}" in ${lang}.${langNote} Each prompt must start with the equivalent of "Most likely to" in the target language. Make them funny, surprising, or debatable — things friends would argue about. Keep each under 15 words. Return ONLY a JSON array of strings.`,
 
-    never_have_i_ever: `Generate ${count} "Never have I ever..." statements about "${theme}" in ${lang}.${langNote} Each should start with the equivalent of "Never have I ever" in the target language. Return ONLY a JSON array of strings.`,
+    never_have_i_ever: `Generate ${count} "Never have I ever..." statements about "${theme}" in ${lang}.${langNote} Each must start with the equivalent of "Never have I ever" in the target language. Mix funny, surprising, and mildly embarrassing experiences. Keep each under 15 words. Return ONLY a JSON array of strings.`,
 
-    dare_wheel: `Generate ${count} ${mode || 'mild'} dares about "${theme}" in ${lang}.${langNote} Mild = funny and harmless. Spicy = bold/embarrassing but not dangerous. Group = involves everyone playing. Return ONLY a JSON array of strings.`,
+    dare_wheel: `Generate ${count} ${mode || 'mild'} dares about "${theme}" in ${lang}.${langNote} Mild = funny and harmless party dares. Spicy = bold or embarrassing but safe. Group = involves multiple or all players. Each dare must be a single clear action doable in a living room. Keep each under 15 words. Return ONLY a JSON array of strings.`,
 
-    would_you_rather: `Generate ${count} "Would You Rather" dilemmas about "${theme}" in ${lang}.${langNote} Return ONLY a JSON array of objects: [{"optionA":"...","optionB":"..."}]`,
+    would_you_rather: `Generate ${count} "Would You Rather" dilemmas about "${theme}" in ${lang}.${langNote} Both options should be equally tempting or equally terrible — make them genuinely hard to choose between. Keep each option under 12 words. Return ONLY a JSON array of objects: [{"optionA":"...","optionB":"..."}]`,
 
-    pass_the_bomb: `Generate ${count} "Name a..." category prompts about "${theme}" in ${lang}.${langNote} Each should be a category players can rapidly name items from (e.g. "Name a type of..."). Return ONLY a JSON array of strings.`,
+    pass_the_bomb: `Generate ${count} broad "Name a..." category prompts about "${theme}" in ${lang}.${langNote} Each must be a category with MANY possible answers so players can rapidly name items under time pressure. Good: "Name a fruit", "Name a country in Europe". Bad: "Name something very specific". Keep each under 10 words. Return ONLY a JSON array of strings.`,
 
-    category_rush: `Generate ${count} categories related to "${theme}" in ${lang} with a matching emoji.${langNote} Return ONLY a JSON array of objects: [{"category":"...","emoji":"🍕"}]`,
+    category_rush: `Generate ${count} broad categories related to "${theme}" in ${lang} with a matching emoji.${langNote} Each category must have at least 15+ possible answers that most people could name. Good: "Italian foods 🍕", "Dog breeds 🐕". Bad: "Types of quantum particles". Return ONLY a JSON array of objects: [{"category":"...","emoji":"🍕"}]`,
 
-    trivia_showdown: `Generate ${count} trivia questions about "${theme}" in ${lang}.${langNote} Each question must have exactly 4 options with one correct answer. Return ONLY a JSON array: [{"question":"...","options":["A","B","C","D"],"correctIndex":0,"category":"${theme}"}]`,
+    trivia_showdown: `Generate ${count} trivia questions about "${theme}" in ${lang}.${langNote} Questions should be fun and answerable by a general audience — not obscure. Each question must have exactly 4 plausible options with one correct answer. Wrong options should sound believable. Return ONLY a JSON array: [{"question":"...","options":["A","B","C","D"],"correctIndex":0,"category":"${theme}"}]`,
 
-    psych: `Generate ${count} trivia questions about "${theme}" in ${lang} where the real answer is surprising or little-known.${langNote} Return ONLY a JSON array: [{"question":"...","answer":"..."}]`,
+    psych: `Generate ${count} trivia questions about "${theme}" in ${lang} where the real answer is surprising or little-known.${langNote} The question should sound like it has an obvious answer, but the real answer should be unexpected. Keep questions under 20 words. Return ONLY a JSON array: [{"question":"...","answer":"..."}]`,
 
-    charades_timer: `Generate ${count} fun things to act out (charades prompts) related to "${theme}" in ${lang}.${langNote} Mix of actions, characters, movies, and objects. Return ONLY a JSON array of strings.`,
+    charades_timer: `Generate ${count} charades prompts related to "${theme}" in ${lang}.${langNote} CRITICAL RULES: Each prompt must be 1-3 words maximum. Every prompt must be something a person can physically act out using body movements and gestures — no abstract concepts, no long phrases. Mix of: animals, actions (e.g. "fishing", "surfing"), characters (e.g. "ninja", "cowboy"), objects (e.g. "guitar", "umbrella"). Bad examples: "the feeling of nostalgia", "quantum physics". Good examples: "robot", "brushing teeth", "penguin". Return ONLY a JSON array of strings.`,
 
-    forehead_guess: `Generate ${count} words/names to guess in a forehead guessing game, related to "${theme}" in ${lang}.${langNote} Mix of famous people, objects, animals, and concepts. Return ONLY a JSON array of strings.`,
+    forehead_guess: `Generate ${count} words for a forehead guessing game related to "${theme}" in ${lang}.${langNote} RULES: Each word must be 1-3 words maximum. Must be a well-known, recognizable thing that can be described by other players giving yes/no clues. Mix of: famous people, animals, everyday objects, foods, places. Avoid obscure or niche terms. Good: "pizza", "Batman", "Eiffel Tower". Bad: "existentialism", "mitochondria". Return ONLY a JSON array of strings.`,
 
-    draw_and_guess: `Generate ${count} things to draw related to "${theme}" in ${lang}.${langNote} Each should be something drawable (concrete nouns, characters, scenes). Return ONLY a JSON array of strings.`,
+    draw_and_guess: `Generate ${count} drawing prompts related to "${theme}" in ${lang}.${langNote} RULES: Each prompt must be 1-2 words maximum. Must be a concrete, physical thing that can be clearly drawn — NO abstract concepts, feelings, or actions. Good: "cat", "pizza", "castle", "rocket". Bad: "happiness", "running quickly", "the economy". Return ONLY a JSON array of strings.`,
 
-    secret_spy: `Generate ${count} locations related to "${theme}" in ${lang}, each with 6-8 roles that exist at that location.${langNote} Return ONLY a JSON array: [{"name":"...","icon":"building","roles":["role1","role2","role3","role4","role5","role6"],"category":"${theme}"}]`,
+    secret_spy: `Generate ${count} well-known locations related to "${theme}" in ${lang}, each with 6-8 distinct roles/people you'd find at that location.${langNote} Locations should be places everyone knows. Roles must be clearly different from each other. Return ONLY a JSON array: [{"name":"...","icon":"building","roles":["role1","role2","role3","role4","role5","role6"],"category":"${theme}"}]`,
 
-    undercover_word: `Generate ${count} word pairs related to "${theme}" in ${lang}.${langNote} Each pair should be two similar but distinct things (hard to tell apart when describing). Return ONLY a JSON array: [{"civilian":"...","undercover":"..."}]`,
+    undercover_word: `Generate ${count} word pairs related to "${theme}" in ${lang}.${langNote} Each pair must be two similar but subtly different things — close enough that describing one could apply to both, making it hard to tell who has which word. Good: "coffee/tea", "guitar/ukulele", "Netflix/YouTube". Bad: "car/elephant" (too different). Each word should be 1-2 words. Return ONLY a JSON array: [{"civilian":"...","undercover":"..."}]`,
   };
 
   return prompts[gameType] || null;
