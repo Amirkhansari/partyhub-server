@@ -190,10 +190,16 @@ function findRoomByPlayerId(playerId) {
 
 wss.on('connection', (ws) => {
   ws.playerId = uuidv4();
+  ws.isAlive = true;
   console.log(`[Connect] ${ws.playerId}`);
   send(ws, { type: 'connected', playerId: ws.playerId });
 
+  // Protocol-level pong (from ws.ping) and an app-level keepalive both keep
+  // the socket marked alive so the heartbeat sweep below won't reap it.
+  ws.on('pong', () => { ws.isAlive = true; });
+
   ws.on('message', (data, isBinary) => {
+    ws.isAlive = true; // any traffic proves the socket is live
     if (isBinary) {
       const room = findRoomByPlayerId(ws.playerId);
       if (!room) {
@@ -223,6 +229,27 @@ wss.on('connection', (ws) => {
   ws.on('close', () => handleClose(ws));
   ws.on('error', (err) => console.error(`[Error] ${ws.playerId}:`, err.message));
 });
+
+// ── Heartbeat ─────────────────────────────────────────────────────
+// Railway (and most proxies) silently drop idle WebSocket connections and
+// never deliver a TCP close for half-open sockets. Ping every client on an
+// interval: this keeps the proxy's connection mapping warm AND lets us detect
+// truly-dead peers (no pong since last sweep) so their seat is freed and host
+// migration happens promptly instead of the room silently rotting.
+const HEARTBEAT_MS = 25000;
+const heartbeat = setInterval(() => {
+  for (const ws of wss.clients) {
+    if (ws.isAlive === false) {
+      console.log(`[Heartbeat] terminating unresponsive ${ws.playerId}`);
+      ws.terminate(); // fires 'close' → handleClose starts the grace timer
+      continue;
+    }
+    ws.isAlive = false;
+    try { ws.ping(); } catch (_) {}
+  }
+}, HEARTBEAT_MS);
+
+wss.on('close', () => clearInterval(heartbeat));
 
 function handleClose(ws) {
   const room = findRoomByPlayerId(ws.playerId);
